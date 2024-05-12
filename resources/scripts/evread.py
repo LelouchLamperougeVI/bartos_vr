@@ -1,8 +1,6 @@
 from __future__ import print_function
 
 import sys
-sys.path.append('/usr/lib/python3/dist-packages')
-
 import GameLogic
 import json
 import numpy as np
@@ -69,7 +67,7 @@ def main():
                 t1, dt1, x1, y1 = _t1, _dt1, _x1, _y1
     # move according to ball readout:
     # some delay introduced (100 Fs) so that mouse cant move before everthing is loaded
-    if not GameLogic.Object['player'].Stop:
+    if not GameLogic.Object['player'].current_context._splashing:
         movement(controller, (x1, y1, t1, dt1))
     else:
         pass
@@ -77,45 +75,19 @@ def main():
 # define useMouseLook
 def movement(controller, move):
     # Note that x is mirrored if the dome projection is used.
-    xtranslate = 0 #
     ytranslate = 0
-    zrotate = 0
     # gain 2.6e-1 for 2-P station, 5e-2 for training setup!
-    gain = GameLogic.Object['player'].gain
-    
-    # Simple example how the mice could be read out
-
+    gain = GameLogic.Object['player'].ops['gain']
     
     # y axis front mouse
     if len(move[1]):
-        # pass
         ytranslate = float(move[1].sum()) * -2.0*gain
-        #yval int(ytranslate*100)+125
-    # x axis front mouse / side mouse
-    if len(move[1]) and len(move[2]):
-        pass
-        #zrotate = float(move[1].sum()+move[2].sum()) * 3e-3 * gain
-
-    # y axis side mouse
-    if len(move[0]):
-        pass
-        #zrotate += float((move[0].sum()))*1e-3*gain
     
     # Get the actuators
-    act_xtranslate = controller.actuators["xtranslate"]
     act_ytranslate = controller.actuators["ytranslate"]
-    act_zrotate    = controller.actuators["zrotate"]
-
-    #act_ytranslate.dLoc = [xtranslate, ytranslate, 0.0]
-    #act_ytranslate.useLocalDLoc = True
     act_ytranslate.linV = [0.0, ytranslate, 0.0]
 
-    act_zrotate.dRot = [0.0, 0.0, zrotate]
-    act_zrotate.useLocalDRot = False
-
-    # Use the actuators 
-    controller.activate(act_xtranslate)
-    controller.activate(act_zrotate)
+    # Use the actuators
     controller.activate(act_ytranslate)
 
 main()

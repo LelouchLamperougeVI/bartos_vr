@@ -1,0 +1,51 @@
+{
+    "settings": {
+        "env": 160.0,
+        "reward_dur": 1.0,
+        "trial_delay": 1.0,
+        "splash_dur": 1.0,
+        "sound_dur": 0.5,
+        "sound": "8000Hz.wav",
+        "voltage_scale": [-9.5, 9.5],
+        "gain": 0.147,
+        "assets_path": "~/Documents/GitHub/bartos_vr/resources",
+        "save_path": "~/Documents/GitHub/bartos_vr/data"
+    },
+    "sequence": {
+        "blocks": [["B"], ["A", "B"]],
+        "repetitions": [[3], [2, 2]],
+        "loop": [false, true],
+        "duration": [60.0, 60.0]
+    },
+    "contexts": {
+        "rest": {
+            "brake": true,
+            "splash": null,
+            "rewards": []
+        },
+        "A": {
+            "brake": false,
+            "splash": "horizontal_stripes.png",
+            "rewards": [30.0, 68.0, 120.0, 156.0],
+            "towers_pos": [40.0, -40.0, 130.0, -130.0],
+            "towers": ["Ndiag_b.tif", "Ndiag_c.tif", "Nvertstripe_g.tif", "Dot.jpg"],
+            "walls": ["Ndiag_b.tif", "Ndiag_b.tif", "Nvertstripe_c.tif", "Nvertstripe_c.tif", "Ndot_g.tif", "Ndot_g.tif", "Ndot_c.tif", "Ndot_c.tif"],
+            "floors": ["chess-green.jpg"]
+        },
+        "B": {
+            "brake": false,
+            "splash": "horizontal_stripes.png",
+            "rewards": [30.0, 68.0, 120.0, 156.0],
+            "towers_pos": [-40.0, 40.0, -130.0, 130.0],
+            "towers": ["Ndiag_b.tif", "Ndiag_c.tif", "Nvertstripe_g.tif", "Dot.jpg"],
+            "walls": ["Ndiag_b.tif", "Ndiag_b.tif", "Nvertstripe_c.tif", "Nvertstripe_c.tif", "Ndot_g.tif", "Ndot_g.tif", "Ndot_c.tif", "Ndot_c.tif"],
+            "floors": ["chess-green.jpg"]
+        }
+    },
+    "channels": {
+        "pos": 1,
+        "trial": 2,
+        "reward": 3,
+        "brake": 4
+    }
+}
