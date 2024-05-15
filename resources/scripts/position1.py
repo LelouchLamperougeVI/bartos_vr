@@ -1,20 +1,18 @@
 from __future__ import print_function
 import GameLogic
 
-import sys
 import os
 import re
 import bge
 import time
+import datetime
 import serial
 import struct
 import logging
-from datetime import datetime
+import csv
 import aud
-import multiprocessing
 import threading
 import json
-import numpy as np
 import itertools
 import pty # testing without real arduino
 import cProfile, pstats
@@ -26,31 +24,46 @@ warnings.simplefilter("ignore")
 #bge.render.setFullScreen(True)
 reward_stat = 0
 sound_stat = 0
+y_pos = 0.0
+_start_ts = time.time()
+log_file = '/dev/null'
 
 chan_map = {}
 
+def log(*mesg):
+    # Write row into csv.
+    # *mesg write to each column
+    timestamp = '{0:.9f}'.format(time.time() - _start_ts)
+    with open(log_file, 'a', newline='') as csvfile:
+        writer = csv.writer(csvfile, dialect='unix')
+        writer.writerow([timestamp] + [m for m in mesg])
+
 def position(y=None): # get/set player's current position
     scene = bge.logic.getCurrentScene()
+    if y_pos != scene.objects['Player'].position[1]: # log position every time function gets called
+        global y_pos
+        y_pos = scene.objects['Player'].position[1]
+        log('pos', y_pos)
     if y is None:
         return scene.objects['Player'].position[1]
-    else:
-        scene.objects['Player'].position = [0, y, 2.7]
+    scene.objects['Player'].position = [0, y, 2.7]
 
-def transmit(arduino, do=None, value=None): # transmitting signals through pulse pal
-    opcode = 213
-    if do == 'handshake':
-        handshakeByteString = struct.pack('BB', opcode, 72)
-        arduino.write(handshakeByteString)
-        Response = arduino.read(5)
-        fvBytes = Response[1:5]
-        firmwareVersion = struct.unpack('<I',fvBytes)[0]
-        print('Handshake complete. Firmware version {}'.format(firmwareVersion))
-        arduino.write('YPYTHON')
-    elif do == 'pos':
-        voltage = math.ceil(((voltage+10)/float(20))*255) # Convert volts to bytes
-        mesg = struct.pack('BBBB', opcode, 79, chan_map['pos'], voltage)
-        arduino.write(mesg)
-    elif do == 'trial':
+# def transmit(arduino, do=None, value=None): # transmitting signals through pulse pal
+#     opcode = 213
+#     if do == 'handshake':
+#         handshakeByteString = struct.pack('BB', opcode, 72)
+#         arduino.write(handshakeByteString)
+#         Response = arduino.read(5)
+#         fvBytes = Response[1:5]
+#         firmwareVersion = struct.unpack('<I',fvBytes)[0]
+#         print('Handshake complete. Firmware version {}'.format(firmwareVersion))
+#         arduino.write('YPYTHON')
+#     elif do == 'pos':
+#         voltage = math.ceil(((voltage+10)/float(20))*255) # Convert volts to bytes
+#         mesg = struct.pack('BBBB', opcode, 79, chan_map['pos'], voltage)
+#         arduino.write(mesg)
+#     elif do == 'trial':
+#         return
 
 # reward_pump
 class reward_event_():
@@ -175,6 +188,7 @@ class context:
         camera.position = [-4.71363,-0.882549,2]
         camera.localOrientation = [3.14,0,0]
         self._splashing = True
+        log('splashing', 'blank' if blank else self.ops['splash'])
 
     def paint(self, obj, path=None):
         prop_name = 'customTexture'
@@ -256,6 +270,7 @@ class sequencer:
         self.duration = self.ops['duration'].pop(0)
         self.block_cycle = 0.0
         self.next_rep()
+        log('block', '|'.join(self.current_block))
 
     def next_rep(self):
         self.current_rep += 1
@@ -263,6 +278,7 @@ class sequencer:
         self.current_rep = self.current_rep % len(self.current_block)
         self.current_context = self.current_block[self.current_rep]
         self.laps += 1
+        log('context', self.current_context)
 
 class Player:
     def __init__(self) -> None:
@@ -289,6 +305,10 @@ class Player:
         self.ops.update(data['settings'])
         GameLogic.setLogicTicRate(self.ops['logicRate']) # set game logic rate
         self.ops['assets_path'] = os.path.expanduser(self.ops['assets_path'])
+        global log_file
+        log_file = os.path.expanduser(self.ops['save_path'])
+        log_file = os.path.join(log_file, datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S') + '.csv')
+        log('settings', 'global', self.ops)
 
         # load contexts
         self.context_ops = data['contexts']
@@ -296,15 +316,16 @@ class Player:
         for key in self.context_ops:
             self.context_ops[key].update(self.ops) # settings field contains global parameters that override context specific values!!!
             self.contexts[key] = context(self.context_ops[key]) # instantiate context
+            log('settings', 'context', key, self.context_ops[key])
 
         # load channels mapping
         global chan_map
         chan_map.update(data['channels'])
+        log('settings', 'channels', chan_map)
 
         # load sequence
         self.sequencer = sequencer(data['sequence'])
-
-        self.Stop = 1                                                           # 1-> paused 0-> free used in evread.py
+        log('settings', 'sequence', data['sequence'])
 
         # attach arduino -> try /dev/ttyACM0 to /dev/ttyACM9 (WILL NOT WORK IF MORE THAN ONE ARE CONNECTED)
         connected = False
@@ -327,37 +348,8 @@ class Player:
         self.current_context = self.contexts[self.sequencer.current_context]
         self.current_context.activate()
 
-    def lick_value(self):
-        OpMenuByte = 213
-        handshakeByteString = struct.pack('<BB', OpMenuByte,0x03)
-        self.arduino.write(handshakeByteString)
-        Response=self.arduino.read(1)
-        res=0
-        try:
-            res = struct.unpack('B',Response)[0]
-        except:
-            pass
-        return res
-
-    def send_pos_y(self,y):
-        # initial value 5V until mouse starts moving then range[0.2,5]
-        OpMenuByte = 213
-        if self.blankScreenStat==1 or self.interrupted:
-            value = 55049
-        else:
-            value = max(1311,(min(53740,1311+(y/165*52429))))
-        handshakeByteString = struct.pack('<BBH', OpMenuByte,0x01,int(value))
-        self.arduino.write(handshakeByteString)
-
-    def log_xls(self):
-        logger = logging.getLogger("excel_logger")
-        logger.info("%d,%.2f,%d,%d,%d"%(self.currentContext, self.y_pos,sound_stat,reward_stat,self.lick_stat))
-
     # define main program
     def cycle(self):
-        # self.send_pos_y(position())
-        self.lick_stat = self.lick_value()%2
-
         # sequence runner routine
         self.current_context.cycle()
         self.sequencer.block_cycle += 1
@@ -381,8 +373,6 @@ class Player:
         scene.objects['Player']['Block'] = ', '.join(self.sequencer.current_block)
         scene.objects['Player']['Laps'] = self.sequencer.laps
         scene.objects['Player']['Block time'] = "{0:.3f} s".format(self.sequencer.block_cycle / self.ops['logicRate'])
-
-        # self.log_xls()
 
 
 #### run that bitch ####
