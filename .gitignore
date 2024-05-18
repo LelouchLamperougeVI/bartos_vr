@@ -1,2 +1,4 @@
 blender/blender
 *.blend~?
+.spyproject/
+data/
