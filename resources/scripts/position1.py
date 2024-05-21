@@ -28,7 +28,9 @@ y_pos = 0.0
 _start_ts = time.time()
 log_file = '/dev/null'
 
-chan_map = {}
+arduino = serial.Serial()
+voltage_scale = [-10.0, 10.0]
+env_len = 150.0
 
 def log(*mesg):
     # Write row into csv.
@@ -43,12 +45,13 @@ def position(y=None): # get/set player's current position
     if y_pos != scene.objects['Player'].position[1]: # log position every time function gets called
         global y_pos
         y_pos = scene.objects['Player'].position[1]
+        transmit('pos', y_pos/env_len * (voltage_scale[1] - voltage_scale[0]) + voltage_scale[0])
         log('pos', y_pos)
     if y is None:
         return scene.objects['Player'].position[1]
     scene.objects['Player'].position = [0, y, 2.7]
 
-def transmit(arduino, do=None, value=None): # transmitting signals through pulse pal
+def transmit(do=None, value=None): # transmitting signals through pulse pal
     opcode = 213
     volt2short = lambda v: round((v + 10) / 20 * 65535)
     if do == 'pos':
@@ -87,73 +90,29 @@ def transmit(arduino, do=None, value=None): # transmitting signals through pulse
 
 # reward_pump
 class reward_event_():
-    def __init__(self,pos,type,arduino,delay=0,platform=None) -> None:
+    def __init__(self, pos, delay=0, sound=None) -> None:
         self.startPos = pos
-        self.type = type
         self.active_stat = 0
-        self.arduino = arduino
-        self.platform = platform
         self.delay = delay
+        self.sound = sound
 
     def check_condition(self):
-        global y_pos
-        if y_pos > self.startPos and not self.active_stat:
+        if position() > self.startPos and not self.active_stat:
             self.active_stat = 1
-            if self.platform:
-                scene = bge.logic.getCurrentScene()
-                scene.objects[self.platform].position = [100,100,0]
-            if self.type==1:
-                sa = threading.Thread(target=self.reward1Thread)
-                sa.start()
+            sa = threading.Thread(target=self.reward1Thread)
+            sa.start()
+            if self.sound is not None:
+                aud.device().play(self.sound)
+            transmit('reward')
 
     def reward1Thread(self):
-        global reward_stat, y_pos
-        reward_stat = 1
         time.sleep(self.delay)
-        logger_event = logging.getLogger("event_logger")
-        print("Reward started: %.2f"%(y_pos))
-        logger_event.info("Reward started: %.2f"%(y_pos))
         ser = serial.Serial('/dev/ttyUSB0')
         for i in range(2):
             ser.setDTR(False)
             time.sleep(0.1)
             ser.setDTR(True)
             time.sleep(0.1)
-        reward_stat = 0
-        logger_event.info("Reward ended: %.2f"%(y_pos))
-        print("Reward ended: %.2f"%(y_pos))
-
-
-# sound
-class sound_():
-    def __init__(self,pos,arduino) -> None:
-        self.sound = aud.Factory.file("/home/behavior/gnoom/sounds/8000Hz.wav")
-        self.arduino = arduino
-        self.startPos = pos
-        self.startCode = 0xB
-        self.stopCode = 0xC
-        self.active_stat = 0
-
-    def check_condition(self):
-        global y_pos,sound_stat
-        if y_pos > self.startPos and not self.active_stat:
-            self.active_stat = 1
-            # sa = multiprocessing.Process(target=self.sound_thread)
-            sa = threading.Thread(target=self.sound_thread)
-            aud.device().play(self.sound)
-            sa.start()
-
-    def sound_thread(self):
-        global y_pos,sound_stat
-        logger_event = logging.getLogger("event_logger")
-        logger_event.info("Sound started: %.2f"%(y_pos))
-        print("Sound started: %.2f"%(y_pos))
-        sound_stat = 1
-        # self.transmitCode(self.startCode)
-        time.sleep(0.5)
-        # self.transmitCode(self.stopCode)
-        sound_stat = 0
-        logger_event.info("Sound stopped: %.2f"%(y_pos))
 
 class context:
     def __init__(self, ops) -> None:
@@ -162,7 +121,6 @@ class context:
             "splash": None, # display a splash screen, either mention image file or None to disable
             "splash_dur": 0.0, # duration of splash screen
             "sound": None, # sound file, None to disable reward tone
-            "sound_dur": 0.0, # duration of tone
             "reward_dur": 1.0, # duration of reward
             "trial_delay": 0.0, # blank screen at the end of each trial for set duration
             "env": 160.0, # begining and end of track
@@ -173,6 +131,8 @@ class context:
             "floors": [None], # floor texture, None for black
         }
         self.ops.update(ops)
+        if self.ops['sound'] is not None:
+            self.ops['sound'] = os.path.join(self.ops['assets_path'], 'sounds', self.ops['sound'])
         self.ls_towers = ['tower_r1', 'tower_r2', 'tower_l1', 'tower_l2']
         self.ls_walls = ['wall_l1', 'wall_r1', 'wall_l2', 'wall_r2', 'wall_l3', 'wall_r3', 'wall_l4', 'wall_r4']
         self.ls_floors = ['Cube']
@@ -238,11 +198,13 @@ class context:
 
     def activate(self): # make this context active
         self.reset() # start fresh
+        global env_len
+        env_len = self.ops['env']
 
         # position rewards
         reward_pos = self.ops['rewards']
-        #self.events.append(reward_event_(reward_pos,1,self.arduino,delay=0)) # attach reward triggers to reward locations
-        #self.events.append(sound_(reward_pos,self.arduino)) # attach sound triggers to rewards
+        for r in reward_pos:
+            self.events.append(reward_event_(pos=r, sound=self.ops['sound'])) # attach reward triggers to reward locations
 
         # position towers
         scene = bge.logic.getCurrentScene()
@@ -269,7 +231,12 @@ class context:
         # show splash screen
         if self.ops['splash'] is not None:
             self.splash()
-        # send trial pulse
+        # send trial pulse and apply brake
+        transmit('trial')
+        if self.ops['brake']:
+            transmit('brake', True)
+        else:
+            transmit('brake', False)
 
 class sequencer:
     def __init__(self, ops):
@@ -329,6 +296,8 @@ class Player:
         log_file = os.path.expanduser(self.ops['save_path'])
         log_file = os.path.join(log_file, datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S') + '.csv')
         log('settings', 'global', self.ops)
+        global voltage_scale
+        voltage_scale = self.ops['voltage_scale']
 
         # load contexts
         self.context_ops = data['contexts']
@@ -338,22 +307,18 @@ class Player:
             self.contexts[key] = context(self.context_ops[key]) # instantiate context
             log('settings', 'context', key, self.context_ops[key])
 
-        # load channels mapping
-        global chan_map
-        chan_map.update(data['channels'])
-        log('settings', 'channels', chan_map)
-
         # load sequence
         self.sequencer = sequencer(data['sequence'])
         log('settings', 'sequence', data['sequence'])
 
         # attach arduino -> try /dev/ttyACM0 to /dev/ttyACM9 (WILL NOT WORK IF MORE THAN ONE ARE CONNECTED)
         connected = False
+        global arduino
         for i in range(10):
             try:
                 name = '/dev/ttyACM{}'.format(i)
                 print("trying to connect",name)
-                self.arduino = serial.Serial(name, 115200, timeout=.1)
+                arduino = serial.Serial(name, 115200, timeout=.1)
                 connected = True
                 break
             except:
@@ -362,14 +327,23 @@ class Player:
             print("failed to connect to arduino, opening virtual port for testing")
             master, slave = pty.openpty()
             s_name = os.ttyname(slave)
-            self.arduino = serial.Serial(s_name, 115200, timeout=0) # timeout non-blocking for testing
+            arduino = serial.Serial(s_name, 115200, timeout=0) # timeout non-blocking for testing
         print('Arduino initialized')
 
+        self.frame_rose = False # frame rising tracking
         self.current_context = self.contexts[self.sequencer.current_context]
         self.current_context.activate()
 
     # define main program
     def cycle(self):
+        # track frame pulses
+        frame = transmit('frame')
+        if frame and not self.frame_rose:
+            log('frame')
+            self.frame_rose = True
+        if not frame and self.frame_rose:
+            self.frame_rose = False
+
         # sequence runner routine
         self.current_context.cycle()
         self.sequencer.block_cycle += 1

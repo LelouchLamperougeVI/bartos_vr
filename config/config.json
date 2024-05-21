@@ -5,7 +5,7 @@
         "trial_delay": 1.0,
         "splash_dur": 1.0,
         "sound_dur": 0.5,
-        "sound": "8000Hz.wav",
+        "sound": "10000Hz.wav",
         "voltage_scale": [-9.5, 9.5],
         "gain": 0.147,
         "assets_path": "~/Documents/GitHub/bartos_vr/resources",
@@ -41,11 +41,5 @@
             "walls": ["Ndiag_b.tif", "Ndiag_b.tif", "Nvertstripe_c.tif", "Nvertstripe_c.tif", "Ndot_g.tif", "Ndot_g.tif", "Ndot_c.tif", "Ndot_c.tif"],
             "floors": ["chess-green.jpg"]
         }
-    },
-    "channels": {
-        "pos": 1,
-        "trial": 2,
-        "reward": 3,
-        "brake": 4
     }
 }
