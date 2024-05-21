@@ -48,22 +48,42 @@ def position(y=None): # get/set player's current position
         return scene.objects['Player'].position[1]
     scene.objects['Player'].position = [0, y, 2.7]
 
-# def transmit(arduino, do=None, value=None): # transmitting signals through pulse pal
-#     opcode = 213
-#     if do == 'handshake':
-#         handshakeByteString = struct.pack('BB', opcode, 72)
-#         arduino.write(handshakeByteString)
-#         Response = arduino.read(5)
-#         fvBytes = Response[1:5]
-#         firmwareVersion = struct.unpack('<I',fvBytes)[0]
-#         print('Handshake complete. Firmware version {}'.format(firmwareVersion))
-#         arduino.write('YPYTHON')
-#     elif do == 'pos':
-#         voltage = math.ceil(((voltage+10)/float(20))*255) # Convert volts to bytes
-#         mesg = struct.pack('BBBB', opcode, 79, chan_map['pos'], voltage)
-#         arduino.write(mesg)
-#     elif do == 'trial':
-#         return
+def transmit(arduino, do=None, value=None): # transmitting signals through pulse pal
+    opcode = 213
+    volt2short = lambda v: round((v + 10) / 20 * 65535)
+    if do == 'pos':
+        handshakeByteString = struct.pack('<BBH', opcode, 0x01, volt2short(value))
+        arduino.write(handshakeByteString)
+    elif do == 'frame':
+        handshakeByteString = struct.pack('<BB', opcode, 0x02)
+        arduino.write(handshakeByteString)
+        Response = arduino.read(1)
+        try:
+            res = struct.unpack('B', Response)[0]
+        except:
+            res = 0
+        return res
+    elif do == 'lick':
+        handshakeByteString = struct.pack('<BB', opcode, 0x03)
+        arduino.write(handshakeByteString)
+        Response = arduino.read(1)
+        try:
+            res = struct.unpack('B', Response)[0]
+        except:
+            res = 0
+        return res
+    elif do == 'trial':
+        handshakeByteString = struct.pack('<BB', opcode, 0x04)
+        arduino.write(handshakeByteString)
+    elif do == 'reward':
+        handshakeByteString = struct.pack('<BB', opcode, 0x05)
+        arduino.write(handshakeByteString)
+    elif do == 'brake':
+        if value:
+            handshakeByteString = struct.pack('<BBB', opcode, 0x06, 0x01)
+        else:
+            handshakeByteString = struct.pack('<BBB', opcode, 0x06, 0x00)
+        arduino.write(handshakeByteString)
 
 # reward_pump
 class reward_event_():
@@ -261,7 +281,7 @@ class sequencer:
         print(self.blocks)
         self.laps = -1
         self.next_block()
-    
+
     def next_block(self):
         self.completions = 0
         self.current_rep = -1
@@ -366,7 +386,7 @@ class Player:
             self.sequencer.next_block()
             self.current_context = self.contexts[self.sequencer.current_context]
             self.current_context.activate()
-            
+
         # post debuging information
         scene = bge.logic.getCurrentScene()
         scene.objects['Player']['Context'] = self.sequencer.current_context
