@@ -17,8 +17,12 @@ import itertools
 import pty # testing without real arduino
 import cProfile, pstats
 import warnings
+import EV
 
 warnings.simplefilter("ignore")
+
+scene = bge.logic.getCurrentScene()
+cameras = [scene.objects['Camera'], scene.objects['Camera.001'], scene.objects['Camera.002'], scene.objects['Camera.003'], scene.objects['Camera.004']]
 
 #bge.render.setWindowSize(5400, 1920)
 #bge.render.setFullScreen(True)
@@ -42,14 +46,16 @@ def log(*mesg):
 
 def position(y=None): # get/set player's current position
     scene = bge.logic.getCurrentScene()
-    if y_pos != scene.objects['Player'].position[1]: # log position every time function gets called
-        global y_pos
-        y_pos = scene.objects['Player'].position[1]
-        transmit('pos', y_pos/env_len * (voltage_scale[1] - voltage_scale[0]) + voltage_scale[0])
+    global y_pos
+    if y_pos != scene.objects['Camera'].position[1]: # log position every time function gets called
+        y_pos = scene.objects['Camera'].position[1]
+        transmit('pos', (y_pos % env_len) / env_len * (voltage_scale[1] - voltage_scale[0]) + voltage_scale[0])
         log('pos', y_pos)
     if y is None:
-        return scene.objects['Player'].position[1]
-    scene.objects['Player'].position = [0, y, 2.7]
+        return scene.objects['Camera'].position[1]
+    scene.objects['Camera'].position = [0, y, scene.objects['Camera'].position[2]]
+    for c in cameras:
+        c.position = [0, y, scene.objects['Camera'].position[2]]
 
 def transmit(do=None, value=None): # transmitting signals through pulse pal
     opcode = 213
@@ -60,9 +66,9 @@ def transmit(do=None, value=None): # transmitting signals through pulse pal
     elif do == 'frame':
         handshakeByteString = struct.pack('<BB', opcode, 0x02)
         arduino.write(handshakeByteString)
-        Response = arduino.read(1)
+        Response = arduino.read(4)
         try:
-            res = struct.unpack('B', Response)[0]
+            res = struct.unpack('I', Response)[0]
         except:
             res = 0
         return res
@@ -94,7 +100,7 @@ class reward_event_():
         self.startPos = pos
         self.active_stat = 0
         self.delay = delay
-        self.sound = sound
+        self.sound = aud.Factory.file(sound)
 
     def check_condition(self):
         if position() > self.startPos and not self.active_stat:
@@ -124,11 +130,12 @@ class context:
             "reward_dur": 1.0, # duration of reward
             "trial_delay": 0.0, # blank screen at the end of each trial for set duration
             "env": 160.0, # begining and end of track
-            "rewards": [], # locations of rewards
+            "rewards": [], # locations of rewards, negative numbers only display platform but do not actually trigger pump
             "towers_pos": [None, None, None, None], # locations of towers, negative for left, positive for right
             "towers": [None, None, None, None], # textures for towers, None for black
             "walls": [None, None, None, None, None, None, None, None], # list of file names for walls, None for black
             "floors": [None], # floor texture, None for black
+            "void": False, # show nothing at all, free-floating position, for resting state acquisition
         }
         self.ops.update(ops)
         if self.ops['sound'] is not None:
@@ -136,7 +143,13 @@ class context:
         self.ls_towers = ['tower_r1', 'tower_r2', 'tower_l1', 'tower_l2']
         self.ls_walls = ['wall_l1', 'wall_r1', 'wall_l2', 'wall_r2', 'wall_l3', 'wall_r3', 'wall_l4', 'wall_r4']
         self.ls_floors = ['Cube']
+        self.ls_plats = ['plat1', 'plat2', 'plat3', 'plat4']
         self._black = 'black.jpg'
+        self._height = 2
+        self._orientation = 3.1416/2
+        if self.ops['void']:
+            self._height = 1000
+            self._orientation = 3.1416
         self.reset()
 
     def cycle(self): # cycle the routine
@@ -145,11 +158,12 @@ class context:
             event_.check_condition()
         if self._splashing and self._splash_dur <= tic:
             scene = bge.logic.getCurrentScene()
-            scene.objects['Camera'].position = [-4.71363,-0.882549,1.02404]
-            scene.objects['Camera'].localOrientation = [3.14/2,0,0.139626]
+            scene.objects['Camera'].position = [0,0,self._height]
+            position(0)
+            scene.objects['Camera'].localOrientation = [self._orientation,0,0]
             self._splashing = False
         self._clock += 1
-        if position() >= self.ops['env']:
+        if position() >= self.ops['env'] and not self.ops['void']:
             self.splash(blank=True)
             self._splash_dur = self.ops['trial_delay']
             self._clock = 0
@@ -164,9 +178,10 @@ class context:
             self.paint(obj)
         else:
             self.paint(obj, self.ops['splash'])
-        camera = scene.objects['Camera']
-        camera.position = [-4.71363,-0.882549,2]
-        camera.localOrientation = [3.14,0,0]
+        for c in cameras:
+            c.position = [0, 0, 1000]
+        scene.objects['Camera'].position = [0,0,9]
+        scene.objects['Camera'].localOrientation = [3.1416,0,0]
         self._splashing = True
         log('splashing', 'blank' if blank else self.ops['splash'])
 
@@ -194,6 +209,10 @@ class context:
         self._clock = 0
         self.done = False
         self.events = []
+        scene = bge.logic.getCurrentScene()
+        scene.objects['Camera'].position = [0,0,self._height]
+        position(0)
+        scene.objects['Camera'].localOrientation = [self._orientation,0,0]
         position(0.0)
 
     def activate(self): # make this context active
@@ -202,12 +221,20 @@ class context:
         env_len = self.ops['env']
 
         # position rewards
+        scene = bge.logic.getCurrentScene()
         reward_pos = self.ops['rewards']
-        for r in reward_pos:
-            self.events.append(reward_event_(pos=r, sound=self.ops['sound'])) # attach reward triggers to reward locations
+        if len(reward_pos) == 0:
+            reward_pos = [None for _ in range(len(self.ls_plats))]
+        for i, r in enumerate(reward_pos):
+            if r is None:
+                scene.objects[self.ls_plats[i]].position = [0, -10, 0]
+            elif r < 0:
+                scene.objects[self.ls_plats[i]].position = [0, -r, 0]
+            else:
+                scene.objects[self.ls_plats[i]].position = [0, r, 0]
+                self.events.append(reward_event_(pos=r, sound=self.ops['sound'])) # attach reward triggers to reward locations
 
         # position towers
-        scene = bge.logic.getCurrentScene()
         for t, x in zip(self.ls_towers, self.ops['towers_pos']):
             if x is None:
                 scene.objects[t].position = [0.0, -10.0, 10.0]
@@ -248,11 +275,17 @@ class sequencer:
         print(self.blocks)
         self.laps = -1
         self.next_block()
+        self.done = False
 
     def next_block(self):
         self.completions = 0
         self.current_rep = -1
-        self.current_block = self.blocks.pop(0)
+        if len(self.blocks):
+            self.current_block = self.blocks.pop(0)
+        else:
+            self.done = True
+            log('finish', 'All blocks completed. Experiment is over :)')
+            return
         self.loop = self.ops['loop'].pop(0)
         self.duration = self.ops['duration'].pop(0)
         self.block_cycle = 0.0
@@ -268,7 +301,7 @@ class sequencer:
         log('context', self.current_context)
 
 class Player:
-    def __init__(self) -> None:
+    def __init__(self, data) -> None:
         self.ops = {
                 "gain": 1.6, # VR gain
                 "logicRate": 120.0, # rate at which logic/script runs in Hz
@@ -276,17 +309,6 @@ class Player:
                 "voltage_scale": [-9.5, 9.5], # voltage output scaling from beginning to end of track
                 "assets_path": "~/Documents/VR/resources", # assets folder containing textures, sounds, etc.
                 }
-
-        exp = r".*\.json$"
-        config_files = os.listdir("./config/")
-        [print("[{}] \t".format(i), file) for i, file in enumerate(config_files) if re.search(exp, file)]
-        load_file = input("Which config? [0]\t")
-        if len(load_file) == 0:
-            load_file = '0'
-        load_file = os.path.join(os.getcwd(), "config", config_files[int(load_file)])
-
-        with open(load_file, 'r') as f:
-            data = json.load(f)
 
         # load settings
         self.ops.update(data['settings'])
@@ -330,19 +352,24 @@ class Player:
             arduino = serial.Serial(s_name, 115200, timeout=0) # timeout non-blocking for testing
         print('Arduino initialized')
 
-        self.frame_rose = False # frame rising tracking
+        self.last_frame = 0 # last frame tracking
         self.current_context = self.contexts[self.sequencer.current_context]
         self.current_context.activate()
 
+        self.evtracker = EV.evtracker() # new wheel rotation tracker to replace evread
+
     # define main program
     def cycle(self):
+        # track position
+        delta = self.evtracker.acc() * self.ops['gain']
+        if not self.current_context._splashing:
+            position(delta + position())
+
         # track frame pulses
         frame = transmit('frame')
-        if frame and not self.frame_rose:
-            log('frame')
-            self.frame_rose = True
-        if not frame and self.frame_rose:
-            self.frame_rose = False
+        if frame != self.last_frame:
+            log('frame', frame)
+            self.last_frame = frame
 
         # sequence runner routine
         self.current_context.cycle()
@@ -361,15 +388,41 @@ class Player:
             self.current_context = self.contexts[self.sequencer.current_context]
             self.current_context.activate()
 
+        if self.sequencer.done:
+            bge.logic.endGame()
+
         # post debuging information
         scene = bge.logic.getCurrentScene()
         scene.objects['Player']['Context'] = self.sequencer.current_context
         scene.objects['Player']['Block'] = ', '.join(self.sequencer.current_block)
         scene.objects['Player']['Laps'] = self.sequencer.laps
-        scene.objects['Player']['Block time'] = "{0:.3f} s".format(self.sequencer.block_cycle / self.ops['logicRate'])
+        scene.objects['Player']['Block time'] = "{:.3f} s".format(self.sequencer.block_cycle / self.ops['logicRate'])
+        scene.objects['Player']['y'] = "{:.1f}".format(position())
 
 
 #### run that bitch ####
+scene = bge.logic.getCurrentScene()
+cam1 = scene.objects['Camera.003']
+cam2 = scene.objects['Camera.001']
+cam3 = scene.objects['Camera']
+cam4 = scene.objects['Camera.002']
+cam5 = scene.objects['Camera.004']
+
+width = bge.render.getWindowWidth()
+height = bge.render.getWindowHeight()
+
+cam1.setViewport(0, 0, int(width/5), height)
+cam2.setViewport(int(width/5), 0, int(width*2/5), height)
+cam3.setViewport(int(width*2/5), 0, int(width*3/5), height)
+cam4.setViewport(int(width*3/5), 0, int(width*4/5), height)
+cam5.setViewport(int(width*4/5), 0, int(width*5/5), height)
+
+cam1.useViewport = True
+cam2.useViewport = True
+cam3.useViewport = True
+cam4.useViewport = True
+cam5.useViewport = True
+
 try:
     GameLogic.Object["player"]
     init = 0
@@ -384,7 +437,19 @@ if not init:
     #stats = pstats.Stats(profiler).sort_stats('cumulative')
     #stats.print_stats()
 else:
+    exp = r".*\.json$"
+    config_files = os.listdir("./config/")
+    config_files = [file for file in config_files if re.search(exp, file)]
+    [print("[{}] \t".format(i), file) for i, file in enumerate(config_files) if re.search(exp, file)]
+    load_file = input("Which config? [0]\t")
+    if len(load_file) == 0:
+        load_file = '0'
+    load_file = os.path.join(os.getcwd(), "config", config_files[int(load_file)])
+
+    with open(load_file, 'r') as f:
+        data = json.load(f)
+
     GameLogic.Object={}
-    GameLogic.Object["player"] = Player()
+    GameLogic.Object["player"] = Player(data)
     print("DEBUG: player instantiated")
 

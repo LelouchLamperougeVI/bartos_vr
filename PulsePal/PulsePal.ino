@@ -59,8 +59,9 @@ union {
 } dacValue; // Union allows faster type conversion between 16-bit DAC values and bytes to write via SPI
 
 volatile bool input_channel_1_curr=0;
-volatile bool input_channel_2_curr = true;
 uint16_t volt_value = 0;
+bool frame_rose = false;
+unsigned long last_frame = 0;
 
 unsigned long pulse_dur = 50; // duration of pulse in milliseconds
 unsigned long trial_timer = 0;
@@ -126,10 +127,10 @@ void loop() {
     input_channel_1_curr = lick;
     if (input_channel_1_curr == TriggerLevel) {
       dacValue.uint16[0] = 65535;
-      digitalWrite(OutputLEDLines[0], HIGH);
+      digitalWrite(InputLEDLines[0], HIGH);
     } else {
       dacValue.uint16[0] = 0;
-      digitalWrite(OutputLEDLines[0], LOW);
+      digitalWrite(InputLEDLines[0], LOW);
     }
     DACFlags[0] = 1;
   } else {
@@ -137,13 +138,11 @@ void loop() {
   }
   // Frame Pulse
   bool frame = digitalReadDirect(TriggerLines[1]); // trigger channel 2 for frames
-  if (frame != input_channel_2_curr) {
-    input_channel_2_curr = frame;
-    if (input_channel_2_curr == TriggerLevel) {
-      digitalWrite(OutputLEDLines[0], HIGH);
-    } else {
-      digitalWrite(OutputLEDLines[0], LOW);
-    }
+  if (!frame & !frame_rose) {
+    last_frame = millis();
+    frame_rose = true;
+  } else if (frame & frame_rose) {
+    frame_rose = false;
   }
   // Turn off pulses
   if ((millis() > (trial_timer + pulse_dur)) & (dacValue.uint16[0] != (uint16_t) ZERO_VOLT)) {
@@ -168,7 +167,12 @@ void loop() {
         }
       }
       if (CommandByte == 0x02) { // read frame pulse
-        SerialUSB.write((int) !input_channel_2_curr); // trigger channels are inverting (i.e. low is high and high is low, stupid.....)
+        byte buf[4];
+        buf[0] = last_frame & 255;
+        buf[1] = (last_frame >> 8) & 255;
+        buf[2] = (last_frame >> 16) & 255;
+        buf[3] = (last_frame >> 24) & 255;
+        SerialUSB.write(buf, sizeof(buf)); // trigger channels are inverting (i.e. low is high and high is low, stupid.....)
       }
       if (CommandByte == 0x03) { // read lick value
         SerialUSB.write((int) !input_channel_1_curr);

@@ -1,0 +1,37 @@
+{
+    "settings": {
+        "env": 180.0,
+        "reward_dur": 1.0,
+        "trial_delay": 10.0,
+        "splash_dur": 1.0,
+        "sound_dur": 0.5,
+        "sound": "10000Hz.wav",
+        "voltage_scale": [-10, 10],
+        "gain": 0.00355555555,
+        "assets_path": "~/Documents/GitHub/bartos_vr/resources",
+        "save_path": "~/Documents/GitHub/bartos_vr/data"
+    },
+    "sequence": {
+        "blocks": [["A"]],
+        "repetitions": [[1]],
+        "loop": [true],
+        "duration": [1200.0]
+    },
+    "contexts": {
+        "rest": {
+            "brake": true,
+            "splash": null,
+            "rewards": [],
+            "void": true
+        },
+        "A": {
+            "brake": false,
+            "splash": "grat_1.png",
+            "rewards": [30.0, 80.0, 140.0, 180.0],
+            "towers_pos": [40.0, -80.0, 120.0, -160.0],
+            "towers": ["dot_a.png", "dot_a.png", "dot_a.png", "dot_a.png"],
+            "walls": ["dot_a.png", "diag_a.png", "trian2_c.png", "trian_c.png", "trian1_b.png", "tile_b.png", "tile2_d.png", "vert_d.png"],
+            "floors": ["tile2_d.png"]
+        }
+    }
+}
