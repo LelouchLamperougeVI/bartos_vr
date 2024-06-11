@@ -28,8 +28,8 @@
             "brake": false,
             "splash": "grat_1.png",
             "rewards": [30.0, 80.0, 140.0, 180.0],
-            "towers_pos": [40.0, -80.0, 120.0, -160.0],
-            "towers": ["dot_a.png", "dot_a.png", "dot_a.png", "dot_a.png"],
+            "towers_pos": [20.0, -65.0, 110.0, -155.0],
+            "towers": ["trian1_c.png", "hori_a.png", "box_d.png", "trian2_b.png"],
             "walls": ["dot_a.png", "diag_a.png", "trian2_c.png", "trian_c.png", "trian1_b.png", "tile_b.png", "tile2_d.png", "vert_d.png"],
             "floors": ["tile2_d.png"]
         }

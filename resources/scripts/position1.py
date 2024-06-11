@@ -55,7 +55,7 @@ def position(y=None): # get/set player's current position
         return scene.objects['Camera'].position[1]
     scene.objects['Camera'].position = [0, y, scene.objects['Camera'].position[2]]
     for c in cameras:
-        c.position = [0, y, scene.objects['Camera'].position[2]]
+        c.position = [c.position[0], y, scene.objects['Camera'].position[2]]
 
 def transmit(do=None, value=None): # transmitting signals through pulse pal
     opcode = 213
@@ -179,7 +179,7 @@ class context:
         else:
             self.paint(obj, self.ops['splash'])
         for c in cameras:
-            c.position = [0, 0, 1000]
+            c.position = [c.position[0], 0, 1000]
         scene.objects['Camera'].position = [0,0,9]
         scene.objects['Camera'].localOrientation = [3.1416,0,0]
         self._splashing = True
@@ -299,6 +299,7 @@ class sequencer:
         self.current_context = self.current_block[self.current_rep]
         self.laps += 1
         log('context', self.current_context)
+        print('Laps: {}'.format(self.laps))
 
 class Player:
     def __init__(self, data) -> None:
